@@ -10,9 +10,13 @@ import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -21,7 +25,11 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks {
+import java.text.DateFormat;
+import java.util.Date;
+
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks,
+        OnConnectionFailedListener, LocationListener {
 
     private static final String TAG = "MapsActivity";
     //int constant for permissions request
@@ -29,17 +37,24 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private GoogleMap mMap;
     private GoogleApiClient mGoogleApiClient;
     private Location mLastLocation;
+    private String mUserMarkerTitle = "User's Current Location";
+    private LocationRequest mLocationRequest;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+
+
+        setupGoogleApi();
+        mLocationRequest = new LocationRequest();
+        mLocationRequest.setInterval(5_000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
-
-        setupGoogleApi();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -48,6 +63,16 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (mGoogleApiClient.isConnected()) {
+            startLocationUpdates();
+        }
+    }
+
+
     private void setupGoogleApi() {
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .enableAutoManage(this /* FragmentActivity */,
@@ -55,6 +80,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 .addConnectionCallbacks(this)
                 .addApi(LocationServices.API)
                 .build();
+    }
+
+    protected void startLocationUpdates() {
+        LocationServices.FusedLocationApi.requestLocationUpdates(
+                mGoogleApiClient, mLocationRequest, this);
     }
 
 
@@ -77,10 +107,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         // Add a marker in Sydney and move the camera
         if(mLastLocation != null) {
-            LatLng userLoc = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
-            Log.d(TAG, "onRequestPermissionsResult: " + userLoc.latitude + ", " + userLoc.longitude);
-            mMap.addMarker(new MarkerOptions().position(userLoc).title("Marker in Sydney"));
-            mMap.moveCamera(CameraUpdateFactory.newLatLng(userLoc));
+            updateUI();
         }
     }
 
@@ -91,6 +118,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             case MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION:
                 if (grantResults.length > 0
                         && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startLocationUpdates();
                     //do something like set a global boolean?
 //                    if(mMap != null) {
 //                        if(mLastLocation != null) {
@@ -121,27 +149,47 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     @Override
     public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-
+        Toast.makeText(MapsActivity.this, "Unable to connect to Location Services (Google API)", Toast.LENGTH_SHORT).show();
     }
 
     @Override
     public void onConnected(@Nullable Bundle bundle) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
-            mLastLocation = LocationServices.FusedLocationApi.getLastLocation(
-                    mGoogleApiClient);
-            Log.d(TAG, "onConnected: location object - " + mLastLocation.toString());
-            if(mLastLocation != null) {
-                LatLng userLoc = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
-                Log.d(TAG, "onRequestPermissionsResult: " + userLoc.latitude + ", " + userLoc.longitude);
-                mMap.addMarker(new MarkerOptions().position(userLoc).title("Marker in Sydney"));
-                mMap.moveCamera(CameraUpdateFactory.newLatLng(userLoc));
-            }
+            startLocationUpdates();
+            updateUI();
+
         }
     }
 
     @Override
     public void onConnectionSuspended(int i) {
+        Toast.makeText(MapsActivity.this, "Connection to Google API suspended...", Toast.LENGTH_SHORT).show();
+    }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopLocationUpdates();
+    }
+
+    protected void stopLocationUpdates() {
+        LocationServices.FusedLocationApi.removeLocationUpdates(
+                mGoogleApiClient, this);
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        mLastLocation = location;
+        updateUI();
+    }
+
+    private void updateUI() {
+        if (mLastLocation != null) {
+            LatLng userLoc = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
+            Log.d(TAG, "updateUI: " + userLoc.latitude + ", " + userLoc.longitude);
+            mMap.addMarker(new MarkerOptions().position(userLoc).title(mUserMarkerTitle));
+            mMap.moveCamera(CameraUpdateFactory.newLatLng(userLoc));
+        }
     }
 }
